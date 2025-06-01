@@ -27,11 +27,17 @@ export async function POST(request: NextRequest) {
     }
 
     // Return user data without password
-    const { password: _, ...userWithoutPassword } = user;
 
     return NextResponse.json({
       success: true,
-      user: userWithoutPassword
+      user: {
+        id: user.id,
+        name: user.name,
+        studentId: user.studentId,
+        department: user.department,
+        mail: user.mail,
+        tel_no: user.tel_no
+      }
     });
 
   } catch (error) {
