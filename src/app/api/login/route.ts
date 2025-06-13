@@ -158,7 +158,8 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET(_request: NextRequest) { // FIX: Renamed 'request' to '_request'
+// Corrected version
+export async function GET() { // The '_request: NextRequest' parameter is removed
   console.log('ℹ️ GET request to /api/login');
   return NextResponse.json({
     message: "This is the login API endpoint. Use POST with email and password to login.",

@@ -1,8 +1,8 @@
 // app/api/sports-reservations/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
-import { Pool, DatabaseError } from 'pg'; // Import DatabaseError
-import jwt, { JwtPayload } from 'jsonwebtoken'; // Import JwtPayload
+import { Pool, DatabaseError } from 'pg';
+import jwt, { JwtPayload } from 'jsonwebtoken';
 
 // --- Database connection pool ---
 const pool = new Pool({
@@ -15,21 +15,20 @@ const pool = new Pool({
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// --- TokenPayload interface ---
+// --- Interfaces ---
 interface TokenPayload extends JwtPayload {
   studentId: string;
   email: string;
   studentIdNo: number;
 }
 
-// --- SportsReservationRequestBody interface ---
 interface SportsReservationRequestBody {
   facility_type: string;
   reservation_start_time: string;
   reservation_end_time: string;
 }
 
-// --- POST handler (for creating sports reservations) ---
+// --- POST handler ---
 export async function POST(request: NextRequest) {
   if (!JWT_SECRET || !process.env.DATABASE_URL) {
     return NextResponse.json({ error: 'Server configuration error.' }, { status: 500 });
@@ -45,7 +44,7 @@ export async function POST(request: NextRequest) {
       const verified = jwt.verify(token, JWT_SECRET);
       if (typeof verified === 'string') throw new Error("Invalid token payload format");
       decodedPayload = verified as TokenPayload;
-    } catch (_err) { // FIX: Renamed to _err for unused variable
+    } catch { // FIX: Removed unused '_err' variable
       return NextResponse.json({ error: 'Invalid or expired session.' }, { status: 401 });
     }
     const studentId = decodedPayload.studentId;
@@ -61,7 +60,7 @@ export async function POST(request: NextRequest) {
         if (new Date(reservation_start_time) >= new Date(reservation_end_time)) {
              return NextResponse.json({ error: 'reservation_end_time must be after reservation_start_time.' }, { status: 400 });
         }
-    } catch (_dateError) { // FIX: Renamed to _dateError for unused variable
+    } catch { // FIX: Removed unused '_dateError' variable
         return NextResponse.json({ error: 'Invalid date format for reservation times. Use ISO 8601 format.' }, { status: 400 });
     }
     const defaultStatus = "confirmed";
@@ -74,7 +73,7 @@ export async function POST(request: NextRequest) {
     const result = await client.query(queryText, [studentId, facility_type, reservation_start_time, reservation_end_time, defaultStatus]);
     const newReservation = result.rows[0];
     return NextResponse.json({ success: true, message: 'Sports reservation created successfully.', data: newReservation }, { status: 201 });
-  } catch (error: unknown) { // FIX: Use 'unknown' instead of 'any'
+  } catch (error: unknown) {
     console.error('💥 Create Sports Reservation API Error:', error);
     if (error instanceof DatabaseError) {
         if (error.code === '23505') return NextResponse.json({ error: 'This facility is already booked for the selected time slot or conflicts.' }, { status: 409 });
@@ -86,41 +85,31 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// --- GET handler (for viewing own sports reservations) ---
+// --- GET handler ---
 export async function GET(request: NextRequest) {
   if (!JWT_SECRET || !process.env.DATABASE_URL) {
     console.error('💥 View Sports Reservations API Error: Server misconfiguration.');
     return NextResponse.json({ error: 'Server configuration error.' }, { status: 500 });
   }
-
   let client;
   try {
     const tokenCookie = request.cookies.get('authToken');
     const token = tokenCookie?.value;
-    if (!token) {
-      return NextResponse.json({ error: 'Authentication required. Please login.' }, { status: 401 });
-    }
+    if (!token) return NextResponse.json({ error: 'Authentication required. Please login.' }, { status: 401 });
 
     let decodedPayload: TokenPayload;
     try {
       const verified = jwt.verify(token, JWT_SECRET);
       if (typeof verified === 'string') throw new Error("Invalid token payload format");
       decodedPayload = verified as TokenPayload;
-    } catch (err: unknown) { // FIX: Use 'unknown' instead of 'any'
-      if (err instanceof Error) {
-        console.error('❌ Invalid or expired token for viewing sports reservations:', err.message);
-      }
-      return NextResponse.json({ error: 'Invalid or expired session. Please login again.' }, { status: 401 });
+    } catch (err: unknown) {
+      if (err instanceof Error) console.error('❌ Invalid or expired token:', err.message);
+      return NextResponse.json({ error: 'Invalid or expired session.' }, { status: 401 });
     }
-
     const studentId = decodedPayload.studentId;
-    if (!studentId) {
-      return NextResponse.json({ error: 'Invalid token: Student ID missing.' }, { status: 400 });
-    }
-    console.log(`🔍 Fetching sports reservations for studentId: ${studentId}`);
+    if (!studentId) return NextResponse.json({ error: 'Invalid token: Student ID missing.' }, { status: 400 });
 
     client = await pool.connect();
-
     const queryText = `
       SELECT id, student_id, facility_type, reservation_start_time, reservation_end_time, status
       FROM sports_reservations
@@ -128,28 +117,18 @@ export async function GET(request: NextRequest) {
       ORDER BY reservation_start_time DESC;
     `;
     const result = await client.query(queryText, [studentId]);
-    const reservations = result.rows;
-    console.log(`📊 Found ${reservations.length} sports reservations for studentId: ${studentId}`);
+    return NextResponse.json({ success: true, count: result.rows.length, data: result.rows }, { status: 200 });
 
-    return NextResponse.json({
-      success: true,
-      count: reservations.length,
-      data: reservations
-    }, { status: 200 });
-
-  } catch (error: unknown) { // FIX: Use 'unknown' instead of 'any'
+  } catch (error: unknown) {
     console.error('💥 View Sports Reservations API Error:', error);
-    if (error instanceof Error) {
-      console.error(error.stack);
-    }
+    if (error instanceof Error) console.error(error.stack);
     return NextResponse.json({ error: 'Failed to fetch sports reservations.' }, { status: 500 });
   } finally {
     if (client) {
       try {
         client.release();
-        console.log('🔓 Database connection released for viewing sports reservations');
       } catch (releaseError: unknown) {
-        console.error('Error releasing client for sports reservations:', releaseError);
+        console.error('Error releasing client:', releaseError);
       }
     }
   }
