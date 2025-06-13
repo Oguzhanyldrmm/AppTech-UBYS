@@ -1,13 +1,15 @@
 // app/api/sports-reservations/[reservationId]/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
-import { Pool, DatabaseError } from 'pg'; // Import DatabaseError
-import jwt, { JwtPayload } from 'jsonwebtoken'; // Import JwtPayload
+import { Pool, DatabaseError } from 'pg';
+import jwt, { JwtPayload } from 'jsonwebtoken';
 
 // --- Database connection pool ---
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  ssl: process.env.NODE_ENV === 'production' ? {
+    rejectUnauthorized: false
+  } : false,
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
@@ -22,16 +24,22 @@ interface TokenPayload extends JwtPayload {
   studentIdNo: number;
 }
 
+// FIX: Updated function signature for Next.js 15
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { reservationId: string } }
-) {
-  if (!JWT_SECRET || !process.env.DATABASE_URL) {
-    console.error('💥 Cancel Sports Reservation API Error: Server misconfiguration.');
+  context: { params: Promise<{ reservationId: string }> }
+): Promise<NextResponse> {
+  if (!JWT_SECRET) {
+    console.error('💥 Cancel Sports Reservation API Error: JWT_SECRET is not available.');
+    return NextResponse.json({ error: 'Server configuration error.' }, { status: 500 });
+  }
+  if (!process.env.DATABASE_URL) {
+    console.error('💥 Cancel Sports Reservation API Error: DATABASE_URL is not available.');
     return NextResponse.json({ error: 'Server configuration error.' }, { status: 500 });
   }
 
-  const { reservationId } = params;
+  // FIX: Await the params Promise
+  const { reservationId } = await context.params;
 
   if (!reservationId || typeof reservationId !== 'string') {
     return NextResponse.json({ error: 'Invalid reservation ID.' }, { status: 400 });
@@ -42,22 +50,26 @@ export async function PATCH(
     // 1. Authenticate the user
     const tokenCookie = request.cookies.get('authToken');
     const token = tokenCookie?.value;
+
     if (!token) {
-      return NextResponse.json({ error: 'Authentication required.' }, { status: 401 });
+      return NextResponse.json({ error: 'Authentication required. Please login.' }, { status: 401 });
     }
 
     let decodedPayload: TokenPayload;
     try {
       const verified = jwt.verify(token, JWT_SECRET);
       if (typeof verified === 'string') {
-          throw new Error("Invalid token payload format");
+        throw new Error("Invalid token payload format");
       }
       decodedPayload = verified as TokenPayload;
-    } catch (err: unknown) { // FIX: Use 'unknown' instead of 'any'
-      if (err instanceof Error) {
-        console.error('❌ Invalid or expired token for cancelling sports reservation:', err.message);
+    } catch (_err: unknown) { // FIX: Use underscore prefix
+      if (_err instanceof Error) {
+        console.error('❌ Invalid or expired token for cancelling sports reservation:', _err.message);
+        if (_err.name === 'TokenExpiredError') {
+          return NextResponse.json({ error: 'Session expired. Please login again.' }, { status: 401 });
+        }
       } else {
-        console.error('❌ An unknown token verification error occurred:', err);
+        console.error('❌ An unknown token verification error occurred:', _err);
       }
       return NextResponse.json({ error: 'Invalid or expired session. Please login again.' }, { status: 401 });
     }
@@ -70,18 +82,23 @@ export async function PATCH(
     console.log(`Attempting to cancel sports reservationId: ${reservationId} for studentId: ${studentId}`);
 
     // 2. Connect to the database
-    client = await pool.connect();
+    try {
+      client = await pool.connect();
+    } catch (_connectionError: unknown) { // FIX: Use underscore prefix
+      console.error('❌ Database connection failed for cancelling sports reservation:', _connectionError);
+      return NextResponse.json({ error: 'Database connection failed.' }, { status: 503 });
+    }
 
-    // 3. Update the reservation status
+    // 3. Update the reservation status to "cancelled"
     const newStatus = "cancelled";
-    const cancellableStatus = "confirmed";
-
+    const cancellableStatus = "active";
     const queryText = `
       UPDATE sports_reservations
       SET status = $1
       WHERE id = $2 AND student_id = $3 AND status = $4
-      RETURNING id, student_id, facility_type, reservation_start_time, reservation_end_time, status;
+      RETURNING id, student_id, reservation_date, facility, time_slot, status;
     `;
+
     const result = await client.query(queryText, [newStatus, reservationId, studentId, cancellableStatus]);
 
     if (result.rowCount === 0) {
@@ -96,15 +113,15 @@ export async function PATCH(
       }
       if (checkResult.rows[0].status !== cancellableStatus) {
         return NextResponse.json(
-            { error: `Sports reservation cannot be cancelled. Current status: ${checkResult.rows[0].status}.` },
+            { error: `Sports reservation cannot be cancelled. Its current status is: ${checkResult.rows[0].status}.` },
             { status: 409 }
         );
       }
-      return NextResponse.json({ error: 'Failed to cancel sports reservation or not eligible.' }, { status: 400 });
+      return NextResponse.json({ error: 'Failed to cancel sports reservation or reservation not eligible for cancellation.' }, { status: 400 });
     }
 
     const updatedReservation = result.rows[0];
-    console.log('✅ Sports reservation cancelled successfully:', updatedReservation);
+    console.log('✅ Sports reservation cancelled (status updated) successfully:', updatedReservation);
 
     return NextResponse.json({
       success: true,
@@ -112,12 +129,13 @@ export async function PATCH(
       data: updatedReservation
     }, { status: 200 });
 
-  } catch (error: unknown) { // FIX: Use 'unknown' instead of 'any'
-    console.error('💥 Cancel Sports Reservation API Error:', error);
-    if (error instanceof DatabaseError) {
-        console.error(`Database error: ${error.message} (Code: ${error.code})`);
-    } else if (error instanceof Error) {
-      console.error(error.stack);
+  } catch (_error: unknown) { // FIX: Use underscore prefix
+    console.error('💥 Cancel Sports Reservation API Error:', _error);
+    if (_error instanceof DatabaseError) {
+        console.error('Database error code:', _error.code);
+        console.error('Database error message:', _error.message);
+    } else if (_error instanceof Error) {
+        console.error(_error.stack);
     }
     return NextResponse.json({ error: 'Failed to cancel sports reservation.' }, { status: 500 });
   } finally {
@@ -125,8 +143,8 @@ export async function PATCH(
       try {
         client.release();
         console.log('🔓 Database connection released for cancelling sports reservation');
-      } catch (releaseError: unknown) { // FIX: Use 'unknown'
-         console.error('Error releasing client for sports reservation:', releaseError);
+      } catch (_releaseError: unknown) { // FIX: Use underscore prefix
+        console.error('Error releasing database client:', _releaseError);
       }
     }
   }
