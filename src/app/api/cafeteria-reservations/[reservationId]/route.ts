@@ -1,10 +1,10 @@
 // app/api/cafeteria-reservations/[reservationId]/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
-import { Pool, DatabaseError } from 'pg'; // Import DatabaseError for specific error checks
-import jwt, { JwtPayload } from 'jsonwebtoken'; // Import JwtPayload for type safety
+import { Pool, DatabaseError } from 'pg';
+import jwt, { JwtPayload } from 'jsonwebtoken';
 
-// --- Database connection pool (same as before) ---
+// --- Database connection pool ---
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? {
@@ -17,17 +17,21 @@ const pool = new Pool({
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// --- A more specific TokenPayload interface ---
+// --- Type Interfaces ---
 interface TokenPayload extends JwtPayload {
   studentId: string;
   email: string;
   studentIdNo: number;
 }
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: { reservationId: string } }
-) {
+// FIX: Define a specific type for the route context parameters
+interface RouteContext {
+  params: {
+    reservationId: string;
+  };
+}
+
+export async function PATCH(request: NextRequest, context: RouteContext) { // FIX: Corrected the function signature
   if (!JWT_SECRET) {
     console.error('💥 Cancel Reservation API Error: JWT_SECRET is not available.');
     return NextResponse.json({ error: 'Server configuration error.' }, { status: 500 });
@@ -37,7 +41,7 @@ export async function PATCH(
     return NextResponse.json({ error: 'Server configuration error.' }, { status: 500 });
   }
 
-  const { reservationId } = params;
+  const { reservationId } = context.params; // FIX: Destructure from the 'context' parameter
 
   if (!reservationId || typeof reservationId !== 'string') {
     return NextResponse.json({ error: 'Invalid reservation ID.' }, { status: 400 });
@@ -55,13 +59,12 @@ export async function PATCH(
 
     let decodedPayload: TokenPayload;
     try {
-      // FIX: Verify token and then assert type after checking it's not a string
       const verified = jwt.verify(token, JWT_SECRET);
       if (typeof verified === 'string') {
         throw new Error("Invalid token payload format");
       }
       decodedPayload = verified as TokenPayload;
-    } catch (err: unknown) { // FIX: Use 'unknown' instead of 'any'
+    } catch (err: unknown) {
       if (err instanceof Error) {
         console.error('❌ Invalid or expired token for cancelling reservation:', err.message);
         if (err.name === 'TokenExpiredError') {
@@ -83,7 +86,7 @@ export async function PATCH(
     // 2. Connect to the database
     try {
       client = await pool.connect();
-    } catch (connectionError: unknown) { // FIX: Use 'unknown' instead of 'any'
+    } catch (connectionError: unknown) {
       console.error('❌ Database connection failed for cancelling reservation:', connectionError);
       return NextResponse.json({ error: 'Database connection failed.' }, { status: 503 });
     }
@@ -128,9 +131,8 @@ export async function PATCH(
       data: updatedReservation
     }, { status: 200 });
 
-  } catch (error: unknown) { // FIX: Use 'unknown' instead of 'any'
+  } catch (error: unknown) {
     console.error('💥 Cancel Reservation API Error:', error);
-    // Check for specific error types for better logging
     if (error instanceof DatabaseError) {
         console.error('Database error code:', error.code);
         console.error('Database error message:', error.message);
@@ -143,7 +145,7 @@ export async function PATCH(
       try {
         client.release();
         console.log('🔓 Database connection released for cancelling reservation');
-      } catch (releaseError: unknown) { // FIX: Use 'unknown' for this error too
+      } catch (releaseError: unknown) {
         console.error('Error releasing database client:', releaseError);
       }
     }
