@@ -1,14 +1,14 @@
-// app/api/sport-balance/route.ts
+// app/api/sport-balances/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
-import { Pool } from 'pg';
-import jwt from 'jsonwebtoken';
+import { Pool, DatabaseError } from 'pg'; // Import DatabaseError
+import jwt, { JwtPayload } from 'jsonwebtoken'; // Import JwtPayload
 
-// Database connection pool (same configuration as your other APIs)
+// Database connection pool
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? {
-    rejectUnauthorized: false // Common for Neon/Vercel, review your specific SSL needs
+    rejectUnauthorized: false
   } : false,
   max: 20,
   idleTimeoutMillis: 30000,
@@ -17,25 +17,23 @@ const pool = new Pool({
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// Define a type for the JWT payload we expect
-interface TokenPayload {
-  studentId: string; // This should be the UUID (from students.id)
+// Define a type for the JWT payload
+interface TokenPayload extends JwtPayload {
+  studentId: string;
   email: string;
-  studentIdNo: number; // Assuming you included this in your JWT payload from the login
-  iat?: number; // Issued at (automatically added by jsonwebtoken)
-  exp?: number; // Expiration time (automatically added by jsonwebtoken)
+  studentIdNo: number;
 }
 
 export async function GET(request: NextRequest) {
   if (!JWT_SECRET) {
-    console.error('💥 Sport Balance API (GET /api/sport-balances) Error: JWT_SECRET is not available.');
+    console.error('💥 Sport Balance API Error: JWT_SECRET is not available.');
     return NextResponse.json(
       { error: 'Server configuration error. Cannot process request.' },
       { status: 500 }
     );
   }
   if (!process.env.DATABASE_URL) {
-    console.error('💥 Sport Balance API (GET /api/sport-balances) Error: DATABASE_URL is not available.');
+    console.error('💥 Sport Balance API Error: DATABASE_URL is not available.');
     return NextResponse.json(
       { error: 'Server configuration error. Cannot process request.' },
       { status: 500 }
@@ -43,26 +41,33 @@ export async function GET(request: NextRequest) {
   }
 
   let client;
-
   try {
     // 1. Get the token from the cookie
     const tokenCookie = request.cookies.get('authToken');
     const token = tokenCookie?.value;
 
     if (!token) {
-      console.log('❌ No auth token found for sport balance (GET /api/sport-balances). Access denied.');
+      console.log('❌ No auth token for sport balance. Access denied.');
       return NextResponse.json({ error: 'Authentication required. Please login.' }, { status: 401 });
     }
 
     // 2. Verify the token and extract payload
     let decodedPayload: TokenPayload;
     try {
-      decodedPayload = jwt.verify(token, JWT_SECRET) as TokenPayload;
-      console.log('🔑 Token verified for sport balance (GET /api/sport-balances). Payload:', decodedPayload);
-    } catch (err: any) {
-      console.error('❌ Invalid or expired token for sport balance (GET /api/sport-balances):', err.message);
-      if (err.name === 'TokenExpiredError') {
-        return NextResponse.json({ error: 'Session expired. Please login again.' }, { status: 401 });
+      const verified = jwt.verify(token, JWT_SECRET);
+      if (typeof verified === 'string') {
+        throw new Error("Invalid token payload format");
+      }
+      decodedPayload = verified as TokenPayload;
+      console.log('🔑 Token verified for sport balance. Payload:', decodedPayload);
+    } catch (err: unknown) { // FIX: Use 'unknown' instead of 'any'
+      if (err instanceof Error) {
+        console.error('❌ Invalid or expired token for sport balance:', err.message);
+        if (err.name === 'TokenExpiredError') {
+          return NextResponse.json({ error: 'Session expired. Please login again.' }, { status: 401 });
+        }
+      } else {
+        console.error('❌ An unknown token verification error occurred:', err);
       }
       return NextResponse.json({ error: 'Invalid session. Please login again.' }, { status: 401 });
     }
@@ -70,7 +75,7 @@ export async function GET(request: NextRequest) {
     // 3. Get studentId from the decoded payload
     const studentId = decodedPayload.studentId;
     if (!studentId) {
-      console.error('❌ studentId not found in token payload for sport balance (GET /api/sport-balances).');
+      console.error('❌ studentId not found in token payload for sport balance.');
       return NextResponse.json({ error: 'Invalid token payload.' }, { status: 400 });
     }
 
@@ -79,27 +84,23 @@ export async function GET(request: NextRequest) {
     // 4. Connect to the database
     try {
       client = await pool.connect();
-      console.log('✅ Database connected successfully for sport balance (GET /api/sport-balances)');
-    } catch (connectionError: any) {
-      console.error('❌ Database connection failed for sport balance (GET /api/sport-balances):', connectionError);
+      console.log('✅ Database connected successfully for sport balance');
+    } catch (connectionError: unknown) { // FIX: Use 'unknown' instead of 'any'
+      console.error('❌ Database connection failed for sport balance:', connectionError);
       return NextResponse.json(
         { error: 'Database connection failed. Please try again later.' },
         { status: 503 }
       );
     }
 
-    // 5. Query the sport_balances table
-    // Your screenshot confirmed columns: id (uuid), student_id (uuid), balance (numeric)
-    // Assuming your table is named 'sport_balances'. Change if different.
+    // 5. Query the sports_balances table
     const queryText = 'SELECT id, student_id, balance FROM sports_balances WHERE student_id = $1';
-    console.log('🔍 Executing query for sport balance (GET /api/sport-balances):', queryText, 'with studentId:', studentId);
+    console.log('🔍 Executing query for sport balance:', queryText, 'with studentId:', studentId);
 
     const result = await client.query(queryText, [studentId]);
 
     if (result.rows.length === 0) {
-      console.log(`ℹ️ No sport balance found for studentId: ${studentId} (GET /api/sport-balances)`);
-      // It's successful in the sense that the query ran and we found no data for this authenticated user.
-      // Returning 200 with data: null is a common pattern.
+      console.log(`ℹ️ No sport balance found for studentId: ${studentId}`);
       return NextResponse.json(
         { success: true, message: 'No sport balance record found for this student.', data: null },
         { status: 200 }
@@ -107,7 +108,7 @@ export async function GET(request: NextRequest) {
     }
 
     const balanceData = result.rows[0];
-    console.log('📊 Sport balance data retrieved (GET /api/sport-balances):', balanceData);
+    console.log('📊 Sport balance data retrieved:', balanceData);
 
     return NextResponse.json({
       success: true,
@@ -115,9 +116,11 @@ export async function GET(request: NextRequest) {
       timestamp: new Date().toISOString()
     });
 
-  } catch (error: any) {
-    console.error('💥 Sport Balance API (GET /api/sport-balances) Error:', error);
-    if (error.stack) {
+  } catch (error: unknown) { // FIX: Use 'unknown' instead of 'any'
+    console.error('💥 Sport Balance API Error:', error);
+    if (error instanceof DatabaseError) {
+        console.error(`Database error: ${error.message} (Code: ${error.code})`);
+    } else if (error instanceof Error) {
       console.error(error.stack);
     }
     return NextResponse.json(
@@ -128,14 +131,10 @@ export async function GET(request: NextRequest) {
     if (client) {
       try {
         client.release();
-        console.log('🔓 Database connection released for sport balance (GET /api/sport-balances)');
-      } catch (releaseError) {
-        console.error('Error releasing client for sport balance (GET /api/sport-balances):', releaseError);
+        console.log('🔓 Database connection released for sport balance');
+      } catch (releaseError: unknown) { // FIX: Use 'unknown' instead of 'any'
+        console.error('Error releasing client for sport balance:', releaseError);
       }
     }
   }
 }
-
-// You can add other HTTP method handlers (POST, PUT, DELETE) to this file
-// for the /api/sport-balances route if needed in the future.
-// For example, an admin POST to create/set a sport balance (would need different auth).
