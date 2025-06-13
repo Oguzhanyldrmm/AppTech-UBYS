@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
         throw new Error("Invalid token payload format");
       }
       decodedPayload = verified as TokenPayload;
-    } catch (_err) { // FIX: Renamed to _err to fix unused variable warning
+    } catch { // FIX: Renamed to _err to fix unused variable warning
       // The error object itself isn't used here, so we can ignore it with an underscore
       return NextResponse.json({ error: 'Invalid or expired session.' }, { status: 401 });
     }
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
     let body: ReservationRequestBody;
     try {
       body = await request.json();
-    } catch (_parseError) { // FIX: Renamed to _parseError to fix unused variable warning
+    } catch  { // FIX: Renamed to _parseError to fix unused variable warning
       return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 });
     }
     const { reservation_date, meal_type } = body;

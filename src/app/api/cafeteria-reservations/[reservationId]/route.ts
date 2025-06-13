@@ -1,10 +1,10 @@
-// app/api/cafeteria-reservations/route.ts
+// app/api/cafeteria-reservations/[reservationId]/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
-import { Pool, DatabaseError } from 'pg';
-import jwt, { JwtPayload } from 'jsonwebtoken';
+import { Pool } from 'pg';
+import jwt from 'jsonwebtoken';
 
-// --- Database connection pool ---
+// --- Database connection pool (same as before) ---
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? {
@@ -17,149 +17,128 @@ const pool = new Pool({
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// --- A more specific TokenPayload interface ---
-interface TokenPayload extends JwtPayload {
-  studentId: string;
+// --- TokenPayload interface (same as before) ---
+interface TokenPayload {
+  studentId: string; // This should be the UUID
   email: string;
   studentIdNo: number;
+  iat?: number;
+  exp?: number;
 }
 
-// --- ReservationRequestBody interface (for POST) ---
-interface ReservationRequestBody {
-  reservation_date: string;
-  meal_type: string;
-}
-
-// --- POST handler (for creating reservations) ---
-export async function POST(request: NextRequest) {
-  if (!JWT_SECRET || !process.env.DATABASE_URL) {
-    console.error('💥 Create Reservation API Error: Server misconfiguration.');
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: { reservationId: string } }
+) {
+  if (!JWT_SECRET) {
+    console.error('💥 Cancel Reservation API Error: JWT_SECRET is not available.');
     return NextResponse.json({ error: 'Server configuration error.' }, { status: 500 });
   }
-  let client;
-  try {
-    const tokenCookie = request.cookies.get('authToken');
-    const token = tokenCookie?.value;
-    if (!token) return NextResponse.json({ error: 'Authentication required.' }, { status: 401 });
-
-    let decodedPayload: TokenPayload;
-    try {
-      const verified = jwt.verify(token, JWT_SECRET);
-      if (typeof verified === 'string') {
-        throw new Error("Invalid token payload format");
-      }
-      decodedPayload = verified as TokenPayload;
-    } catch (_err){ // FIX: Variable removed completely as it's not used
-      return NextResponse.json({ error: 'Invalid or expired session.' }, { status: 401 });
-    }
-    const studentId = decodedPayload.studentId;
-    if (!studentId) return NextResponse.json({ error: 'Invalid token: Student ID missing.' }, { status: 400 });
-
-    let body: ReservationRequestBody;
-    try {
-      body = await request.json();
-    } catch(_parseError) { // FIX: Variable removed completely as it's not used
-      return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 });
-    }
-    const { reservation_date, meal_type } = body;
-    if (!reservation_date || !meal_type || typeof reservation_date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(reservation_date) || typeof meal_type !== 'string' || meal_type.trim() === '') {
-      return NextResponse.json({ error: 'Missing or invalid required fields.' }, { status: 400 });
-    }
-    const defaultStatus = "active";
-    client = await pool.connect();
-    const queryText = `
-      INSERT INTO cafeteria_reservations (student_id, reservation_date, meal_type, status)
-      VALUES ($1, $2, $3, $4)
-      RETURNING id, student_id, reservation_date, meal_type, status;
-    `;
-    const result = await client.query(queryText, [studentId, reservation_date, meal_type, defaultStatus]);
-    const newReservation = result.rows[0];
-    return NextResponse.json({ success: true, message: 'Reservation created successfully.', data: newReservation }, { status: 201 });
-  } catch (error: unknown) {
-    console.error('💥 Create Reservation API Error:', error);
-    if (error instanceof DatabaseError && error.code === '23505') {
-        return NextResponse.json({ error: 'This reservation already exists or conflicts with another.' }, { status: 409 });
-    }
-    return NextResponse.json({ error: 'Failed to create reservation.' }, { status: 500 });
-  } finally {
-    if (client) client.release();
-  }
-}
-
-// --- GET handler (for viewing own reservations) ---
-export async function GET(request: NextRequest) {
-  if (!JWT_SECRET || !process.env.DATABASE_URL) {
-    console.error('💥 View Reservations API Error: Server misconfiguration.');
+  if (!process.env.DATABASE_URL) {
+    console.error('💥 Cancel Reservation API Error: DATABASE_URL is not available.');
     return NextResponse.json({ error: 'Server configuration error.' }, { status: 500 });
   }
 
+  const { reservationId } = params; // Get reservationId from the URL path
+
+  if (!reservationId || typeof reservationId !== 'string') {
+    return NextResponse.json({ error: 'Invalid reservation ID.' }, { status: 400 });
+  }
+
   let client;
+
   try {
+    // 1. Authenticate the user
     const tokenCookie = request.cookies.get('authToken');
     const token = tokenCookie?.value;
+
     if (!token) {
       return NextResponse.json({ error: 'Authentication required. Please login.' }, { status: 401 });
     }
 
     let decodedPayload: TokenPayload;
     try {
-      const verified = jwt.verify(token, JWT_SECRET);
-       if (typeof verified === 'string') {
-        throw new Error("Invalid token payload format");
-      }
-      decodedPayload = verified as TokenPayload;
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        console.error('❌ Invalid or expired token for viewing reservations:', err.message);
-      } else {
-        console.error('❌ An unknown token verification error occurred:', err);
-      }
+      decodedPayload = jwt.verify(token, JWT_SECRET) as TokenPayload;
+    } catch (err: any) {
+      console.error('❌ Invalid or expired token for cancelling reservation:', err.message);
       return NextResponse.json({ error: 'Invalid or expired session. Please login again.' }, { status: 401 });
     }
 
-    const studentId = decodedPayload.studentId;
+    const studentId = decodedPayload.studentId; // UUID from students.id
     if (!studentId) {
       return NextResponse.json({ error: 'Invalid token: Student ID missing.' }, { status: 400 });
     }
-    console.log(`🔍 Fetching reservations for studentId: ${studentId}`);
 
+    console.log(`Attempting to cancel reservationId: ${reservationId} for studentId: ${studentId}`);
+
+    // 2. Connect to the database
     try {
       client = await pool.connect();
-    } catch (connectionError: unknown) {
-      console.error('❌ Database connection failed for viewing reservations:', connectionError);
+    } catch (connectionError: any) {
+      console.error('❌ Database connection failed for cancelling reservation:', connectionError);
       return NextResponse.json({ error: 'Database connection failed.' }, { status: 503 });
     }
 
+    // 3. Update the reservation status to "cancelled"
+    // Ensure the reservation belongs to the authenticated student and is currently 'active' (or any other cancellable status)
+    const newStatus = "cancelled";
     const queryText = `
-      SELECT id, student_id, reservation_date, meal_type, status
-      FROM cafeteria_reservations
-      WHERE student_id = $1
-      ORDER BY reservation_date DESC, meal_type ASC; 
+      UPDATE cafeteria_reservations
+      SET status = $1
+      WHERE id = $2 AND student_id = $3 AND status = 'active' 
+      RETURNING id, student_id, reservation_date, meal_type, status;
     `;
-    const result = await client.query(queryText, [studentId]);
-    const reservations = result.rows;
-    console.log(`📊 Found ${reservations.length} reservations for studentId: ${studentId}`);
+    // The "AND status = 'active'" ensures we only cancel active reservations.
+    // You can adjust this condition if other statuses are also cancellable.
+
+    const result = await client.query(queryText, [newStatus, reservationId, studentId]);
+
+    if (result.rowCount === 0) {
+      // This means no row was updated. It could be because:
+      // 1. The reservationId doesn't exist.
+      // 2. The reservationId doesn't belong to this student_id.
+      // 3. The reservation was not in 'active' status.
+      // We should check which one to give a more specific error.
+      const checkQuery = 'SELECT student_id, status FROM cafeteria_reservations WHERE id = $1';
+      const checkResult = await client.query(checkQuery, [reservationId]);
+
+      if (checkResult.rowCount === 0) {
+        return NextResponse.json({ error: 'Reservation not found.' }, { status: 404 });
+      }
+      if (checkResult.rows[0].student_id !== studentId) {
+        // This case should ideally not be hit if the UPDATE query includes student_id,
+        // but it's a good defensive check.
+        return NextResponse.json({ error: 'Forbidden: You cannot cancel this reservation.' }, { status: 403 });
+      }
+      if (checkResult.rows[0].status !== 'active') {
+        return NextResponse.json(
+            { error: `Reservation cannot be cancelled. Its current status is: ${checkResult.rows[0].status}.` },
+            { status: 409 } // 409 Conflict - already processed or not in a cancellable state
+        );
+      }
+      // If none of the above, it's an unexpected situation for rowCount to be 0
+      return NextResponse.json({ error: 'Failed to cancel reservation or reservation not eligible for cancellation.' }, { status: 400 });
+    }
+
+    const updatedReservation = result.rows[0];
+    console.log('✅ Reservation cancelled (status updated) successfully:', updatedReservation);
 
     return NextResponse.json({
       success: true,
-      count: reservations.length,
-      data: reservations
+      message: 'Reservation cancelled successfully.',
+      data: updatedReservation
     }, { status: 200 });
 
-  } catch (error: unknown) {
-    console.error('💥 View Reservations API Error:', error);
-    if (error instanceof Error) {
+  } catch (error: any) {
+    console.error('💥 Cancel Reservation API Error:', error);
+    if (error.stack) {
       console.error(error.stack);
     }
-    return NextResponse.json({ error: 'Failed to fetch reservations.' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to cancel reservation.' }, { status: 500 });
   } finally {
     if (client) {
-      try {
-        client.release();
-        console.log('🔓 Database connection released for viewing reservations');
-      } catch (releaseError: unknown) {
-        console.error('Error releasing database client:', releaseError);
-      }
+      client.release();
+      console.log('🔓 Database connection released for cancelling reservation');
     }
   }
 }
