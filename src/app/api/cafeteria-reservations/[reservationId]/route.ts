@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
         throw new Error("Invalid token payload format");
       }
       decodedPayload = verified as TokenPayload;
-    } catch { // FIX: Variable is completely removed here
+    } catch { // FIX: Variable removed completely as it's not used
       return NextResponse.json({ error: 'Invalid or expired session.' }, { status: 401 });
     }
     const studentId = decodedPayload.studentId;
@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
     let body: ReservationRequestBody;
     try {
       body = await request.json();
-    } catch { // FIX: Variable is completely removed here
+    } catch { // FIX: Variable removed completely as it's not used
       return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 });
     }
     const { reservation_date, meal_type } = body;
