@@ -1,4 +1,4 @@
-// app/api/cafeteria-reservations/[reservationId]/route.ts
+// src/app/api/cafeteria-reservations/[reservationId]/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
 import { Pool, DatabaseError } from 'pg';
@@ -17,21 +17,18 @@ const pool = new Pool({
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// --- Type Interfaces ---
+// --- A more specific TokenPayload interface ---
 interface TokenPayload extends JwtPayload {
   studentId: string;
   email: string;
   studentIdNo: number;
 }
 
-// FIX: Define a specific type for the route context parameters
-interface RouteContext {
-  params: {
-    reservationId: string;
-  };
-}
-
-export async function PATCH(request: NextRequest, context: RouteContext) { // FIX: Corrected the function signature
+// FIX: The function signature is changed to a simpler format
+export async function PATCH(
+  request: NextRequest,
+  context: { params: { reservationId: string } } 
+) {
   if (!JWT_SECRET) {
     console.error('💥 Cancel Reservation API Error: JWT_SECRET is not available.');
     return NextResponse.json({ error: 'Server configuration error.' }, { status: 500 });
@@ -41,7 +38,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) { // FI
     return NextResponse.json({ error: 'Server configuration error.' }, { status: 500 });
   }
 
-  const { reservationId } = context.params; // FIX: Destructure from the 'context' parameter
+  // FIX: We now get reservationId from the 'context' object
+  const { reservationId } = context.params;
 
   if (!reservationId || typeof reservationId !== 'string') {
     return NextResponse.json({ error: 'Invalid reservation ID.' }, { status: 400 });
