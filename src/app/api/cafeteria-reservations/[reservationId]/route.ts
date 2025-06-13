@@ -24,11 +24,11 @@ interface TokenPayload extends JwtPayload {
   studentIdNo: number;
 }
 
-// FIX: The function signature is changed to a simpler format
+// FIX: Updated function signature for Next.js 15
 export async function PATCH(
   request: NextRequest,
-  context: { params: { reservationId: string } } 
-) {
+  context: { params: Promise<{ reservationId: string }> }
+): Promise<NextResponse> {
   if (!JWT_SECRET) {
     console.error('💥 Cancel Reservation API Error: JWT_SECRET is not available.');
     return NextResponse.json({ error: 'Server configuration error.' }, { status: 500 });
@@ -38,8 +38,8 @@ export async function PATCH(
     return NextResponse.json({ error: 'Server configuration error.' }, { status: 500 });
   }
 
-  // FIX: We now get reservationId from the 'context' object
-  const { reservationId } = context.params;
+  // FIX: Await the params Promise
+  const { reservationId } = await context.params;
 
   if (!reservationId || typeof reservationId !== 'string') {
     return NextResponse.json({ error: 'Invalid reservation ID.' }, { status: 400 });
@@ -62,14 +62,14 @@ export async function PATCH(
         throw new Error("Invalid token payload format");
       }
       decodedPayload = verified as TokenPayload;
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        console.error('❌ Invalid or expired token for cancelling reservation:', err.message);
-        if (err.name === 'TokenExpiredError') {
+    } catch (_err: unknown) { // FIX: Use underscore prefix
+      if (_err instanceof Error) {
+        console.error('❌ Invalid or expired token for cancelling reservation:', _err.message);
+        if (_err.name === 'TokenExpiredError') {
           return NextResponse.json({ error: 'Session expired. Please login again.' }, { status: 401 });
         }
       } else {
-        console.error('❌ An unknown token verification error occurred:', err);
+        console.error('❌ An unknown token verification error occurred:', _err);
       }
       return NextResponse.json({ error: 'Invalid or expired session. Please login again.' }, { status: 401 });
     }
@@ -84,8 +84,8 @@ export async function PATCH(
     // 2. Connect to the database
     try {
       client = await pool.connect();
-    } catch (connectionError: unknown) {
-      console.error('❌ Database connection failed for cancelling reservation:', connectionError);
+    } catch (_connectionError: unknown) { // FIX: Use underscore prefix
+      console.error('❌ Database connection failed for cancelling reservation:', _connectionError);
       return NextResponse.json({ error: 'Database connection failed.' }, { status: 503 });
     }
 
@@ -129,13 +129,13 @@ export async function PATCH(
       data: updatedReservation
     }, { status: 200 });
 
-  } catch (error: unknown) {
-    console.error('💥 Cancel Reservation API Error:', error);
-    if (error instanceof DatabaseError) {
-        console.error('Database error code:', error.code);
-        console.error('Database error message:', error.message);
-    } else if (error instanceof Error) {
-        console.error(error.stack);
+  } catch (_error: unknown) { // FIX: Use underscore prefix
+    console.error('💥 Cancel Reservation API Error:', _error);
+    if (_error instanceof DatabaseError) {
+        console.error('Database error code:', _error.code);
+        console.error('Database error message:', _error.message);
+    } else if (_error instanceof Error) {
+        console.error(_error.stack);
     }
     return NextResponse.json({ error: 'Failed to cancel reservation.' }, { status: 500 });
   } finally {
@@ -143,8 +143,8 @@ export async function PATCH(
       try {
         client.release();
         console.log('🔓 Database connection released for cancelling reservation');
-      } catch (releaseError: unknown) {
-        console.error('Error releasing database client:', releaseError);
+      } catch (_releaseError: unknown) { // FIX: Use underscore prefix
+        console.error('Error releasing database client:', _releaseError);
       }
     }
   }
