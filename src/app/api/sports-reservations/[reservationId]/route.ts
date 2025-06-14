@@ -24,17 +24,19 @@ interface TokenPayload extends JwtPayload {
   studentIdNo: number;
 }
 
-// --- PATCH handler for cancelling a reservation ---
 export async function PATCH(
   request: NextRequest,
-  context: { params: Promise<{ reservationId: string }> } // Your correct signature for modern Next.js
+  context: { params: { reservationId: string | string[] } } // Type can be string or array
 ): Promise<NextResponse> {
   if (!JWT_SECRET || !process.env.DATABASE_URL) {
     console.error('💥 Cancel Sports Reservation API Error: Server misconfiguration.');
     return NextResponse.json({ error: 'Server configuration error.' }, { status: 500 });
   }
 
-  const { reservationId } = await context.params;
+  const reservationIdParam = context.params.reservationId;
+  
+  // FIX: Safely extract the reservationId, whether it's a string or an array of strings.
+  const reservationId = Array.isArray(reservationIdParam) ? reservationIdParam[0] : reservationIdParam;
 
   if (!reservationId || typeof reservationId !== 'string') {
     return NextResponse.json({ error: 'Invalid reservation ID.' }, { status: 400 });
@@ -68,21 +70,18 @@ export async function PATCH(
       return NextResponse.json({ error: 'Invalid token: Student ID missing.' }, { status: 400 });
     }
 
-    console.log(`Attempting to cancel sports reservationId: ${reservationId} for studentId: ${studentId}`);
-
     // 2. Connect to the database
     client = await pool.connect();
 
-    // 3. Update the reservation status to "cancelled"
+    // 3. Update the reservation status
     const newStatus = "cancelled";
-    const cancellableStatus = "confirmed"; // FIX: Status changed from "active" to "confirmed"
+    const cancellableStatus = "confirmed";
 
-    // FIX: The columns in the RETURNING clause now correctly match your table schema
     const queryText = `
       UPDATE sports_reservations
       SET status = $1
       WHERE id = $2 AND student_id = $3 AND status = $4
-      RETURNING id, student_id, facility_type, reservation_start_time, reservation_end_time, status;
+      RETURNING *;
     `;
 
     const result = await client.query(queryText, [newStatus, reservationId, studentId, cancellableStatus]);
@@ -99,7 +98,7 @@ export async function PATCH(
       }
       if (checkResult.rows[0].status !== cancellableStatus) {
         return NextResponse.json(
-            { error: `Sports reservation cannot be cancelled. Current status: ${checkResult.rows[0].status}.` },
+            { error: `Sports reservation cannot be cancelled. Its current status is: ${checkResult.rows[0].status}.` },
             { status: 409 }
         );
       }
@@ -118,7 +117,7 @@ export async function PATCH(
   } catch (error: unknown) {
     console.error('💥 Cancel Sports Reservation API Error:', error);
     if (error instanceof DatabaseError) {
-      console.error(`Database error: ${error.message} (Code: ${error.code})`);
+        console.error(`Database error: ${error.message} (Code: ${error.code})`);
     } else if (error instanceof Error) {
       console.error(error.stack);
     }
