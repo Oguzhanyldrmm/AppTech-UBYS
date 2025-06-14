@@ -1,8 +1,8 @@
 // app/api/cafeteria-reservations/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
-import { Pool, DatabaseError } from 'pg'; // Import DatabaseError for specific error checks
-import jwt, { JwtPayload } from 'jsonwebtoken'; // Import JwtPayload for type safety
+import { Pool, DatabaseError } from 'pg';
+import jwt, { JwtPayload } from 'jsonwebtoken';
 
 // --- Database connection pool ---
 const pool = new Pool({
@@ -17,23 +17,31 @@ const pool = new Pool({
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// --- A more specific TokenPayload interface ---
+// --- Type Interfaces ---
 interface TokenPayload extends JwtPayload {
   studentId: string;
-  email: string;
-  studentIdNo: number;
 }
 
-// --- ReservationRequestBody interface (for POST) ---
+// FIX: Updated request body to expect meal_type_id (a number)
 interface ReservationRequestBody {
-  reservation_date: string;
-  meal_type: string;
+  reservation_date: string; // e.g., "YYYY-MM-DD"
+  meal_type_id: number;
+}
+
+// FIX: Updated response shape for viewing reservations
+interface ReservationDetails {
+    id: string; // uuid
+    student_id: string; // uuid
+    reservation_date: Date;
+    status: string;
+    meal_type_id: number;
+    meal_name: string; // from the joined table
 }
 
 // --- POST handler (for creating reservations) ---
 export async function POST(request: NextRequest) {
   if (!JWT_SECRET || !process.env.DATABASE_URL) {
-    console.error('💥 Create Reservation API Error: Server misconfiguration.');
+    console.error('💥 Create Cafeteria Reservation API Error: Server misconfiguration.');
     return NextResponse.json({ error: 'Server configuration error.' }, { status: 500 });
   }
   let client;
@@ -45,12 +53,9 @@ export async function POST(request: NextRequest) {
     let decodedPayload: TokenPayload;
     try {
       const verified = jwt.verify(token, JWT_SECRET);
-      if (typeof verified === 'string') {
-        throw new Error("Invalid token payload format");
-      }
+      if (typeof verified === 'string') throw new Error("Invalid token payload");
       decodedPayload = verified as TokenPayload;
-    } catch { // FIX: Renamed to _err to fix unused variable warning
-      // The error object itself isn't used here, so we can ignore it with an underscore
+    } catch {
       return NextResponse.json({ error: 'Invalid or expired session.' }, { status: 401 });
     }
     const studentId = decodedPayload.studentId;
@@ -59,28 +64,30 @@ export async function POST(request: NextRequest) {
     let body: ReservationRequestBody;
     try {
       body = await request.json();
-    } catch  { // FIX: Renamed to _parseError to fix unused variable warning
+    } catch {
       return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 });
     }
-    const { reservation_date, meal_type } = body;
-    if (!reservation_date || !meal_type || typeof reservation_date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(reservation_date) || typeof meal_type !== 'string' || meal_type.trim() === '') {
-      return NextResponse.json({ error: 'Missing or invalid required fields.' }, { status: 400 });
+    
+    const { reservation_date, meal_type_id } = body;
+    if (!reservation_date || !meal_type_id || typeof reservation_date !== 'string' || typeof meal_type_id !== 'number') {
+      return NextResponse.json({ error: 'Missing or invalid required fields: reservation_date (string) and meal_type_id (number) are required.' }, { status: 400 });
     }
-    const defaultStatus = "active";
+    
     client = await pool.connect();
+    
     const queryText = `
-      INSERT INTO cafeteria_reservations (student_id, reservation_date, meal_type, status)
-      VALUES ($1, $2, $3, $4)
-      RETURNING id, student_id, reservation_date, meal_type, status;
+      INSERT INTO cafeteria_reservations (student_id, reservation_date, meal_type_id, status)
+      VALUES ($1, $2, $3, 'active')
+      RETURNING *;
     `;
-    const result = await client.query(queryText, [studentId, reservation_date, meal_type, defaultStatus]);
-    const newReservation = result.rows[0];
-    return NextResponse.json({ success: true, message: 'Reservation created successfully.', data: newReservation }, { status: 201 });
-  } catch (error: unknown) { // FIX: Use 'unknown' instead of 'any'
-    console.error('💥 Create Reservation API Error:', error);
-    // Check for specific database errors, e.g., unique constraint violation
+    const result = await client.query(queryText, [studentId, reservation_date, meal_type_id]);
+    
+    return NextResponse.json({ success: true, message: 'Reservation created successfully.', data: result.rows[0] }, { status: 201 });
+
+  } catch (error: unknown) {
+    console.error('💥 Create Cafeteria Reservation API Error:', error);
     if (error instanceof DatabaseError && error.code === '23505') {
-        return NextResponse.json({ error: 'This reservation already exists or conflicts with another.' }, { status: 409 });
+        return NextResponse.json({ error: 'This reservation already exists or conflicts.' }, { status: 409 });
     }
     return NextResponse.json({ error: 'Failed to create reservation.' }, { status: 500 });
   } finally {
@@ -91,76 +98,65 @@ export async function POST(request: NextRequest) {
 // --- GET handler (for viewing own reservations) ---
 export async function GET(request: NextRequest) {
   if (!JWT_SECRET || !process.env.DATABASE_URL) {
-    console.error('💥 View Reservations API Error: Server misconfiguration.');
+    console.error('💥 View Cafeteria Reservations API Error: Server misconfiguration.');
     return NextResponse.json({ error: 'Server configuration error.' }, { status: 500 });
   }
-
   let client;
   try {
     const tokenCookie = request.cookies.get('authToken');
     const token = tokenCookie?.value;
     if (!token) {
-      return NextResponse.json({ error: 'Authentication required. Please login.' }, { status: 401 });
+      return NextResponse.json({ error: 'Authentication required.' }, { status: 401 });
     }
 
     let decodedPayload: TokenPayload;
     try {
       const verified = jwt.verify(token, JWT_SECRET);
-       if (typeof verified === 'string') {
-        throw new Error("Invalid token payload format");
-      }
+      if (typeof verified === 'string') throw new Error("Invalid token payload");
       decodedPayload = verified as TokenPayload;
-    } catch (err: unknown) { // FIX: Use 'unknown' instead of 'any'
-      if (err instanceof Error) {
-        console.error('❌ Invalid or expired token for viewing reservations:', err.message);
-      } else {
-        console.error('❌ An unknown token verification error occurred:', err);
-      }
-      return NextResponse.json({ error: 'Invalid or expired session. Please login again.' }, { status: 401 });
+    } catch (err: unknown) {
+      if (err instanceof Error) console.error('Token verification error:', err.message);
+      return NextResponse.json({ error: 'Invalid or expired session.' }, { status: 401 });
     }
 
     const studentId = decodedPayload.studentId;
     if (!studentId) {
-      return NextResponse.json({ error: 'Invalid token: Student ID missing.' }, { status: 400 });
+      return NextResponse.json({ error: 'Invalid token payload.' }, { status: 400 });
     }
-    console.log(`🔍 Fetching reservations for studentId: ${studentId}`);
-
-    try {
-      client = await pool.connect();
-    } catch (connectionError: unknown) { // FIX: Use 'unknown' instead of 'any'
-      console.error('❌ Database connection failed for viewing reservations:', connectionError);
-      return NextResponse.json({ error: 'Database connection failed.' }, { status: 503 });
-    }
-
+    
+    client = await pool.connect();
+    
+    // FIX: Updated query to JOIN with the correct 'meal_types' table name
     const queryText = `
-      SELECT id, student_id, reservation_date, meal_type, status
-      FROM cafeteria_reservations
-      WHERE student_id = $1
-      ORDER BY reservation_date DESC, meal_type ASC; 
+      SELECT
+        res.id,
+        res.student_id,
+        res.reservation_date,
+        res.status,
+        res.meal_type_id,
+        mt.name AS meal_name
+      FROM
+        cafeteria_reservations res
+      JOIN
+        meal_types mt ON res.meal_type_id = mt.id
+      WHERE
+        res.student_id = $1
+      ORDER BY
+        res.reservation_date DESC;
     `;
-    const result = await client.query(queryText, [studentId]);
-    const reservations = result.rows;
-    console.log(`📊 Found ${reservations.length} reservations for studentId: ${studentId}`);
+    const result = await client.query<ReservationDetails>(queryText, [studentId]);
+    
+    return NextResponse.json({ success: true, count: result.rows.length, data: result.rows });
 
-    return NextResponse.json({
-      success: true,
-      count: reservations.length,
-      data: reservations
-    }, { status: 200 });
-
-  } catch (error: unknown) { // FIX: Use 'unknown' instead of 'any'
-    console.error('💥 View Reservations API Error:', error);
-    if (error instanceof Error) {
-      console.error(error.stack);
-    }
+  } catch (error: unknown) {
+    console.error('💥 View Cafeteria Reservations API Error:', error);
     return NextResponse.json({ error: 'Failed to fetch reservations.' }, { status: 500 });
   } finally {
     if (client) {
       try {
         client.release();
-        console.log('🔓 Database connection released for viewing reservations');
-      } catch (releaseError: unknown) { // FIX: Use 'unknown' for this error too
-        console.error('Error releasing database client:', releaseError);
+      } catch (releaseError: unknown) {
+        console.error('Error releasing client:', releaseError);
       }
     }
   }
