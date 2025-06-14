@@ -36,8 +36,8 @@ interface TimeSlot {
 
 export async function GET(
     request: NextRequest,
-    context: { params: { facilityId: string } }
-) {
+    context: { params: Promise<{ facilityId: string }> } // FIX: Added Promise to the type
+): Promise<NextResponse> { // FIX: Added explicit return Promise type
   if (!JWT_SECRET || !process.env.DATABASE_URL) {
     console.error('💥 Get Availability API Error: Server misconfiguration.');
     return NextResponse.json({ error: 'Server configuration error.' }, { status: 500 });
@@ -45,7 +45,7 @@ export async function GET(
 
   let client;
   try {
-    const { facilityId } = context.params;
+    const { facilityId } = await context.params; // FIX: Added await here
     const { searchParams } = new URL(request.url);
     const date = searchParams.get('date'); // Expects "YYYY-MM-DD"
 
@@ -61,13 +61,13 @@ export async function GET(
     }
     try {
       jwt.verify(token, JWT_SECRET);
-    } catch { // FIX: The unused 'err' variable has been completely removed from here
+    } catch {
       return NextResponse.json({ error: 'Invalid or expired session.' }, { status: 401 });
     }
 
     client = await pool.connect();
 
-    // 2. Get facility rules (opening/closing times, slot duration)
+    // 2. Get facility rules
     const facilityRulesQuery = `
         SELECT sft.opening_time, sft.closing_time, sft.slot_duration_minutes
         FROM sports_facilities sf
@@ -81,7 +81,7 @@ export async function GET(
     }
     const { opening_time, closing_time, slot_duration_minutes } = facilityRulesResult.rows[0];
 
-    // 3. Get existing reservations for that facility on the given day
+    // 3. Get existing reservations
     const dayStart = new Date(`${date}T00:00:00.000Z`);
     const dayEnd = new Date(dayStart);
     dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
