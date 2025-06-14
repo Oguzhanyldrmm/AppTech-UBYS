@@ -2,7 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { Pool, DatabaseError } from 'pg';
-import jwt from 'jsonwebtoken'; // We don't need JwtPayload here anymore
+import jwt from 'jsonwebtoken';
 
 // --- Database connection pool ---
 const pool = new Pool({
@@ -18,8 +18,6 @@ const pool = new Pool({
 const JWT_SECRET = process.env.JWT_SECRET;
 
 // --- Type Interfaces ---
-// FIX: The unused 'TokenPayload' interface has been removed.
-// We only keep the interfaces that are actually used in this file.
 interface FacilityRules {
   opening_time: string; // "HH:MM:SS"
   closing_time: string; // "HH:MM:SS"
@@ -34,6 +32,7 @@ interface TimeSlot {
     start_time: string; // ISO 8601 format
     end_time: string;   // ISO 8601 format
 }
+
 
 export async function GET(
     request: NextRequest,
@@ -58,17 +57,17 @@ export async function GET(
     const tokenCookie = request.cookies.get('authToken');
     const token = tokenCookie?.value;
     if (!token) {
-      return NextResponse.json({ error: 'Authentication required.' }, { status: 401 });
+      return NextResponse.json({ error: 'Authentication required. Please login.' }, { status: 401 });
     }
     try {
-      jwt.verify(token, JWT_SECRET); // We verify the token exists but don't need its payload here
-    } catch (_err: unknown) {
+      jwt.verify(token, JWT_SECRET);
+    } catch { // FIX: The unused 'err' variable has been completely removed from here
       return NextResponse.json({ error: 'Invalid or expired session.' }, { status: 401 });
     }
 
     client = await pool.connect();
 
-    // 2. Get facility rules
+    // 2. Get facility rules (opening/closing times, slot duration)
     const facilityRulesQuery = `
         SELECT sft.opening_time, sft.closing_time, sft.slot_duration_minutes
         FROM sports_facilities sf
@@ -82,7 +81,7 @@ export async function GET(
     }
     const { opening_time, closing_time, slot_duration_minutes } = facilityRulesResult.rows[0];
 
-    // 3. Get existing reservations
+    // 3. Get existing reservations for that facility on the given day
     const dayStart = new Date(`${date}T00:00:00.000Z`);
     const dayEnd = new Date(dayStart);
     dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
@@ -97,29 +96,40 @@ export async function GET(
     const existingReservationsResult = await client.query<ExistingReservation>(existingReservationsQuery, [facilityId, dayStart, dayEnd]);
     const bookedSlots = existingReservationsResult.rows;
 
-    // 4. Generate all possible slots
+    // 4. Generate all possible slots for the day in the LOCAL timezone (+03:00)
+    const localTimezone = "+03:00";
     const allSlots: TimeSlot[] = [];
-    const requestedDate = new Date(`${date}T00:00:00Z`);
-    const [openH, openM] = opening_time.split(':').map(Number);
-    const [closeH, closeM] = closing_time.split(':').map(Number);
-    let currentSlotStart = new Date(requestedDate);
-    currentSlotStart.setUTCHours(openH, openM, 0, 0);
-    const closingTime = new Date(requestedDate);
-    closingTime.setUTCHours(closeH, closeM, 0, 0);
+    
+    let currentSlotStart = new Date(`${date}T${opening_time}${localTimezone}`);
+    const closingTime = new Date(`${date}T${closing_time}${localTimezone}`);
+
+    const formatToLocalISO = (d: Date): string => {
+        const pad = (num: number) => num.toString().padStart(2, '0');
+        const year = d.getFullYear();
+        const month = pad(d.getMonth() + 1);
+        const day = pad(d.getDate());
+        const hours = pad(d.getHours());
+        const minutes = pad(d.getMinutes());
+        const seconds = pad(d.getSeconds());
+        return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${localTimezone}`;
+    };
 
     while(currentSlotStart < closingTime) {
         const currentSlotEnd = new Date(currentSlotStart);
-        currentSlotEnd.setUTCMinutes(currentSlotEnd.getUTCMinutes() + slot_duration_minutes);
+        currentSlotEnd.setMinutes(currentSlotEnd.getMinutes() + slot_duration_minutes);
+
         if (currentSlotEnd > closingTime) break;
+
         allSlots.push({
-            start_time: currentSlotStart.toISOString(),
-            end_time: currentSlotEnd.toISOString(),
+            start_time: formatToLocalISO(currentSlotStart),
+            end_time: formatToLocalISO(currentSlotEnd),
         });
         currentSlotStart = currentSlotEnd;
     }
 
     // 5. Filter out booked slots
     const bookedStartTimes = new Set(bookedSlots.map(slot => slot.reservation_start_time.getTime()));
+
     const availableSlots = allSlots.filter(slot => {
         const slotStartTime = new Date(slot.start_time).getTime();
         return !bookedStartTimes.has(slotStartTime);
