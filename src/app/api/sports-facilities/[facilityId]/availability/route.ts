@@ -62,7 +62,7 @@ export async function GET(
     }
     try {
       jwt.verify(token, JWT_SECRET); // We verify the token exists but don't need its payload here
-    } catch (err: unknown) {
+    } catch (_err: unknown) {
       return NextResponse.json({ error: 'Invalid or expired session.' }, { status: 401 });
     }
 
