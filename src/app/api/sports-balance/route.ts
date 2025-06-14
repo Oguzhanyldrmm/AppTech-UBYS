@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid token payload.' }, { status: 400 });
     }
 
-    console.log(`🔍 Fetching sport balance for studentId: ${studentId} via /api/sport-balances`);
+    console.log(`🔍 Fetching sport balance for studentId: ${studentId} via /api/sports-balance`);
 
     // 4. Connect to the database
     try {
