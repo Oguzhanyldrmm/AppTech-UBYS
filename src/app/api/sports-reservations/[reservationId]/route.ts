@@ -26,17 +26,15 @@ interface TokenPayload extends JwtPayload {
 
 export async function PATCH(
   request: NextRequest,
-  context: { params: { reservationId: string | string[] } } // Type can be string or array
+  context: { params: Promise<{ reservationId: string }> }
 ): Promise<NextResponse> {
   if (!JWT_SECRET || !process.env.DATABASE_URL) {
     console.error('💥 Cancel Sports Reservation API Error: Server misconfiguration.');
     return NextResponse.json({ error: 'Server configuration error.' }, { status: 500 });
   }
 
-  const reservationIdParam = context.params.reservationId;
-  
-  // FIX: Safely extract the reservationId, whether it's a string or an array of strings.
-  const reservationId = Array.isArray(reservationIdParam) ? reservationIdParam[0] : reservationIdParam;
+  // FIX: Added 'await' to correctly handle the Promise-based context
+  const { reservationId } = await context.params;
 
   if (!reservationId || typeof reservationId !== 'string') {
     return NextResponse.json({ error: 'Invalid reservation ID.' }, { status: 400 });
