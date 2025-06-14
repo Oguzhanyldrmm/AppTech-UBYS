@@ -1,10 +1,10 @@
 // app/api/login/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
-import { Pool, DatabaseError } from 'pg'; // Import DatabaseError
+import { Pool, DatabaseError } from 'pg';
 import jwt from 'jsonwebtoken';
 import { serialize } from 'cookie';
-// TODO: Install and import bcrypt: npm install bcrypt @types/bcrypt
+// TODO: When you are ready, install and import bcrypt: npm install bcrypt @types/bcrypt
 // import bcrypt from 'bcrypt';
 
 // Database connection pool
@@ -19,15 +19,6 @@ const pool = new Pool({
 });
 
 const JWT_SECRET = process.env.JWT_SECRET;
-
-// These initial checks are good for local debugging but might not run at the start of a serverless function.
-// Runtime checks inside the handler are more reliable for Vercel.
-if (!process.env.DATABASE_URL) {
-  console.error('💥 FATAL: DATABASE_URL environment variable is not defined.');
-}
-if (!JWT_SECRET) {
-  console.error('💥 FATAL: JWT_SECRET environment variable is not defined.');
-}
 
 export async function POST(request: NextRequest) {
   let client;
@@ -56,15 +47,17 @@ export async function POST(request: NextRequest) {
     try {
       client = await pool.connect();
       console.log('✅ Database connected successfully');
-    } catch (connectionError: unknown) { // FIX: Changed 'any' to 'unknown'
+    } catch (connectionError: unknown) {
       console.error('❌ Database connection failed:', connectionError);
       return NextResponse.json(
         { error: 'Database connection failed. Please try again later.' },
-        { status: 503 } // Service Unavailable
+        { status: 503 }
       );
     }
 
-    const queryText = 'SELECT id, student_id_no, email, password as password_hash FROM students WHERE email = $1';
+    // FIX: Added 'name' and 'department' to the SELECT statement
+    const queryText = 'SELECT id, name, department, student_id_no, email, password as password_hash FROM students WHERE email = $1';
+    
     console.log('🔍 Executing query:', queryText, 'with email:', mail);
 
     const result = await client.query(queryText, [mail]);
@@ -79,7 +72,7 @@ export async function POST(request: NextRequest) {
     }
 
     const user = result.rows[0];
-    console.log('👤 User found:', user.email, 'User UUID:', user.id, 'Student No:', user.student_id_no);
+    console.log('👤 User found:', user.email, 'Name:', user.name);
 
     // CRITICAL SECURITY WARNING: Replace this with bcrypt comparison
     const isValidPassword = user.password_hash === password;
@@ -97,7 +90,8 @@ export async function POST(request: NextRequest) {
     const tokenPayload = {
       studentId: user.id,
       email: user.email,
-      studentIdNo: user.student_id_no
+      studentIdNo: user.student_id_no,
+      name: user.name // You can optionally add name to the token if needed elsewhere
     };
 
     // Sign the JWT
@@ -115,32 +109,25 @@ export async function POST(request: NextRequest) {
       path: '/',
     });
 
-    // FIX: Suppress unused variable warning for '_'
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { password_hash: _, ...userWithoutPasswordHash } = user;
 
     const response = NextResponse.json({
       success: true,
-      user: userWithoutPasswordHash,
+      user: userWithoutPasswordHash, // This will now include name and department
       message: 'Login successful',
-      timestamp: new Date().toISOString()
     });
     response.headers.append('Set-Cookie', cookieSerialized);
 
     console.log('🍪 Cookie set and login successful for:', mail);
     return response;
 
-  } catch (error: unknown) { // FIX: Changed 'any' to 'unknown'
+  } catch (error: unknown) {
     console.error('💥 Login API Error:', error);
-
-    // Check for specific error types for better logging
     if (error instanceof DatabaseError) {
-        console.error('Database error code:', error.code);
-        if (error.code === '42703') { // undefined_column
-            return NextResponse.json({ error: 'Database schema error. Please contact support.' }, { status: 500 });
-        }
+      console.error(`Database error: ${error.message} (Code: ${error.code})`);
     } else if (error instanceof Error) {
-        console.error(error.stack);
+      console.error(error.stack);
     }
     return NextResponse.json(
       { error: 'Internal server error. Please try again later.' },
@@ -151,19 +138,17 @@ export async function POST(request: NextRequest) {
       try {
         client.release();
         console.log('🔓 Database connection released');
-      } catch (releaseError: unknown) { // FIX: Changed implicit 'any' to 'unknown'
+      } catch (releaseError: unknown) {
         console.error('Error releasing client:', releaseError);
       }
     }
   }
 }
 
-// Corrected version
-export async function GET() { // The '_request: NextRequest' parameter is removed
+export async function GET() {
   console.log('ℹ️ GET request to /api/login');
   return NextResponse.json({
     message: "This is the login API endpoint. Use POST with email and password to login.",
     status: "Healthy",
-    timestamp: new Date().toISOString()
   });
 }
