@@ -2,7 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { Pool, DatabaseError } from 'pg';
-import jwt, { JwtPayload } from 'jsonwebtoken';
+import jwt from 'jsonwebtoken';
 
 // --- Database connection pool ---
 const pool = new Pool({
@@ -18,9 +18,7 @@ const pool = new Pool({
 const JWT_SECRET = process.env.JWT_SECRET;
 
 // --- Type Interfaces ---
-interface TokenPayload extends JwtPayload {
-  studentId: string;
-}
+// FIX: The unused 'TokenPayload' interface has been removed.
 
 // This interface defines the shape of the rich data we'll return for each facility
 interface FacilityDetails {
@@ -52,15 +50,14 @@ export async function GET(request: NextRequest) {
 
     try {
       jwt.verify(token, JWT_SECRET);
-    } catch (err: unknown) {
-      if (err instanceof Error) console.error('Token verification failed:', err.message);
+    } catch { // FIX: The unused 'err' variable has been removed
       return NextResponse.json({ error: 'Invalid or expired session.' }, { status: 401 });
     }
 
     // 2. Connect to the database
     client = await pool.connect();
 
-    // 3. Query the database using a JOIN to combine data from both tables
+    // 3. Query the database using a JOIN
     const queryText = `
       SELECT
         sf.id AS facility_id,
@@ -73,7 +70,7 @@ export async function GET(request: NextRequest) {
         sft.closing_time,
         sft.slot_duration_minutes
       FROM
-        sports_facilities sf 
+        sports_facilities sf
       JOIN
         sports_facility_types sft ON sf.facility_type_id = sft.id
       WHERE

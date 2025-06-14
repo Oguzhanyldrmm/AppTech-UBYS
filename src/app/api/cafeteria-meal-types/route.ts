@@ -2,7 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { Pool, DatabaseError } from 'pg';
-import jwt, { JwtPayload } from 'jsonwebtoken';
+import jwt from 'jsonwebtoken';
 
 // --- Database connection pool ---
 const pool = new Pool({
@@ -17,11 +17,7 @@ const pool = new Pool({
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// --- Type Interfaces ---
-interface TokenPayload extends JwtPayload {
-  studentId: string;
-}
-
+// --- Type Interface for the response data ---
 interface MealType {
   id: number;
   name: string;
@@ -35,8 +31,7 @@ export async function GET(request: NextRequest) {
 
   let client;
   try {
-    // 1. Authenticate the user (optional but good practice)
-    // Ensures only logged-in users can see the meal types.
+    // 1. Authenticate the user to ensure they are logged in.
     const tokenCookie = request.cookies.get('authToken');
     const token = tokenCookie?.value;
     if (!token) {
@@ -45,16 +40,14 @@ export async function GET(request: NextRequest) {
 
     try {
       jwt.verify(token, JWT_SECRET);
-    } catch (err: unknown) {
-      if (err instanceof Error) console.error('Token verification failed:', err.message);
+    } catch { // The error variable is removed to prevent 'unused var' errors
       return NextResponse.json({ error: 'Invalid or expired session.' }, { status: 401 });
     }
 
     // 2. Connect to the database
     client = await pool.connect();
 
-    // 3. Query the database for all meal types
-    // Assuming your table is named 'cafeteria_meal_types'
+    // 3. Query the database for all meal types from the 'meal_types' table
     const queryText = `
       SELECT id, name
       FROM meal_types
@@ -77,7 +70,6 @@ export async function GET(request: NextRequest) {
     console.error('💥 Get Meal Types API Error:', error);
     if (error instanceof DatabaseError) {
       console.error(`Database error: ${error.message} (Code: ${error.code})`);
-      // A common error is '42P01' which means the table does not exist.
       if (error.code === '42P01') {
         return NextResponse.json({ error: 'Database query failed: The meal types table may be misspelled or missing.' }, { status: 500 });
       }
