@@ -24,16 +24,18 @@ interface TokenPayload extends JwtPayload {
   studentIdNo: number;
 }
 
+// FIX: Updated function signature for modern Next.js dynamic routes
 export async function PATCH(
   request: NextRequest,
-  context: { params: { reservationId: string } }
-) {
+  context: { params: Promise<{ reservationId: string }> }
+): Promise<NextResponse> {
   if (!JWT_SECRET || !process.env.DATABASE_URL) {
     console.error('💥 Cancel Reservation API Error: Server misconfiguration.');
     return NextResponse.json({ error: 'Server configuration error.' }, { status: 500 });
   }
 
-  const { reservationId } = context.params;
+  // FIX: Added 'await' to get params from the Promise
+  const { reservationId } = await context.params;
 
   if (!reservationId || typeof reservationId !== 'string') {
     return NextResponse.json({ error: 'Invalid reservation ID.' }, { status: 400 });
@@ -75,7 +77,6 @@ export async function PATCH(
     const newStatus = "cancelled";
     const cancellableStatus = "active";
     
-    // FIX: The columns in the RETURNING clause now correctly match your updated table schema
     const queryText = `
       UPDATE cafeteria_reservations
       SET status = $1
