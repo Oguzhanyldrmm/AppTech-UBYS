@@ -1,8 +1,8 @@
 // app/api/login/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
-import { Pool, DatabaseError } from 'pg'; // DatabaseError import ekledim
-import jwt from 'jsonwebtoken';
+import { Pool, DatabaseError } from 'pg';
+import jwt, { JwtPayload } from 'jsonwebtoken';
 import { serialize } from 'cookie';
 
 // Database connection pool
@@ -16,10 +16,27 @@ const pool = new Pool({
   connectionTimeoutMillis: 2000,
 });
 
+const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!process.env.DATABASE_URL) {
+  console.error('💥 FATAL: DATABASE_URL environment variable is not defined.');
+}
+if (!JWT_SECRET) {
+  console.error('💥 FATAL: JWT_SECRET environment variable is not defined.');
+}
+
+interface TokenPayload extends JwtPayload {
+  studentId: string;
+  email: string;
+  studentIdNo: number;
+  name: string;
+  department: string;
+}
+
 export async function POST(request: NextRequest) {
   let client;
 
-  if (!process.env.JWT_SECRET || !process.env.DATABASE_URL) {
+  if (!JWT_SECRET || !process.env.DATABASE_URL) {
     console.error('💥 Login API Error: Server misconfiguration.');
     return NextResponse.json(
       { error: 'Server configuration error. Cannot process login.' },
@@ -51,7 +68,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Updated query to include name and department
+    // FIX: Updated query to include name and department
     const queryText = `
       SELECT 
         id, 
@@ -98,7 +115,7 @@ export async function POST(request: NextRequest) {
     console.log('✅ Password verified for:', mail);
 
     // Create JWT Payload - include name and department
-    const tokenPayload = {
+    const tokenPayload: TokenPayload = {
       studentId: user.id,
       email: user.email,
       studentIdNo: user.student_id_no,
@@ -107,7 +124,7 @@ export async function POST(request: NextRequest) {
     };
 
     // Sign the JWT
-    const token = jwt.sign(tokenPayload, process.env.JWT_SECRET, {
+    const token = jwt.sign(tokenPayload, JWT_SECRET, {
       expiresIn: '1d',
     });
     console.log('🔑 JWT generated for:', mail);
@@ -125,7 +142,7 @@ export async function POST(request: NextRequest) {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { password_hash: _, ...userWithoutPasswordHash } = user;
 
-    // Updated response to include name and department
+    // FIX: Updated response to include name and department
     const response = NextResponse.json({
       success: true,
       user: {
@@ -144,16 +161,16 @@ export async function POST(request: NextRequest) {
     console.log('🍪 Cookie set and login successful for:', mail);
     return response;
 
-  } catch (_error: unknown) { // Underscore prefix
-    console.error('💥 Login API Error:', _error);
+  } catch (error: unknown) {
+    console.error('💥 Login API Error:', error);
 
-    if (_error instanceof DatabaseError) {
-        console.error('Database error code:', _error.code);
-        if (_error.code === '42703') {
+    if (error instanceof DatabaseError) {
+        console.error('Database error code:', error.code);
+        if (error.code === '42703') {
             return NextResponse.json({ error: 'Database schema error. Please contact support.' }, { status: 500 });
         }
-    } else if (_error instanceof Error) {
-        console.error(_error.stack);
+    } else if (error instanceof Error) {
+        console.error(error.stack);
     }
     return NextResponse.json(
       { error: 'Internal server error. Please try again later.' },
@@ -164,14 +181,13 @@ export async function POST(request: NextRequest) {
       try {
         client.release();
         console.log('🔓 Database connection released');
-      } catch (_releaseError: unknown) { // Underscore prefix
-        console.error('Error releasing client:', _releaseError);
+      } catch (releaseError: unknown) {
+        console.error('Error releasing client:', releaseError);
       }
     }
   }
 }
 
-// Simple GET endpoint for testing
 export async function GET() {
   console.log('ℹ️ GET request to /api/login');
   return NextResponse.json({
