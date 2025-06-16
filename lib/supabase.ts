@@ -1,17 +1,24 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+// Only create client on the client side
+const supabaseUrl = typeof window !== 'undefined' ? process.env.NEXT_PUBLIC_SUPABASE_URL : ''
+const supabaseAnonKey = typeof window !== 'undefined' ? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY : ''
 
-if (!supabaseUrl) {
-  throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL environment variable')
+if (typeof window !== 'undefined') {
+  if (!supabaseUrl) {
+    throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL environment variable')
+  }
+
+  if (!supabaseAnonKey) {
+    throw new Error('Missing NEXT_PUBLIC_SUPABASE_ANON_KEY environment variable')
+  }
 }
 
-if (!supabaseAnonKey) {
-  throw new Error('Missing NEXT_PUBLIC_SUPABASE_ANON_KEY environment variable')
-}
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+// Create a dummy client for server-side, real client for client-side
+export const supabase = createClient(
+  supabaseUrl || 'https://placeholder.supabase.co',
+  supabaseAnonKey || 'placeholder-key'
+)
 
 // Database types
 export interface User {

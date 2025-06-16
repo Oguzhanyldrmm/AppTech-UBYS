@@ -1,3 +1,5 @@
+'use client'
+
 import Link from 'next/link'
 
 export default function NotFound() {
@@ -9,7 +11,7 @@ export default function NotFound() {
         <p className="text-gray-600 mb-8">The page you are looking for does not exist.</p>
         <Link
           href="/"
-          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg transition-colors"
+          className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg transition-colors"
         >
           Go Home
         </Link>
