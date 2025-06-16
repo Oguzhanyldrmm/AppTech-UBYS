@@ -99,14 +99,14 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   if (!JWT_SECRET || !process.env.DATABASE_URL) {
     console.error('💥 View Cafeteria Reservations API Error: Server misconfiguration.');
-    return NextResponse.json({ error: 'Server configuration error.' }, { status: 500 });
+    return NextResponse.json({ error: 'Server configuration error.' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
   }
   let client;
   try {
     const tokenCookie = request.cookies.get('authToken');
     const token = tokenCookie?.value;
     if (!token) {
-      return NextResponse.json({ error: 'Authentication required.' }, { status: 401 });
+      return NextResponse.json({ error: 'Authentication required.' }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
     }
 
     let decodedPayload: TokenPayload;
@@ -116,12 +116,12 @@ export async function GET(request: NextRequest) {
       decodedPayload = verified as TokenPayload;
     } catch (err: unknown) {
       if (err instanceof Error) console.error('Token verification error:', err.message);
-      return NextResponse.json({ error: 'Invalid or expired session.' }, { status: 401 });
+      return NextResponse.json({ error: 'Invalid or expired session.' }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
     }
 
     const studentId = decodedPayload.studentId;
     if (!studentId) {
-      return NextResponse.json({ error: 'Invalid token payload.' }, { status: 400 });
+      return NextResponse.json({ error: 'Invalid token payload.' }, { status: 400, headers: { 'Cache-Control': 'no-store' } });
     }
     
     client = await pool.connect();
@@ -146,11 +146,11 @@ export async function GET(request: NextRequest) {
     `;
     const result = await client.query<ReservationDetails>(queryText, [studentId]);
     
-    return NextResponse.json({ success: true, count: result.rows.length, data: result.rows });
+    return NextResponse.json({ success: true, count: result.rows.length, data: result.rows }, { headers: { 'Cache-Control': 'no-store' } });
 
   } catch (error: unknown) {
     console.error('💥 View Cafeteria Reservations API Error:', error);
-    return NextResponse.json({ error: 'Failed to fetch reservations.' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch reservations.' }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
   } finally {
     if (client) {
       try {
