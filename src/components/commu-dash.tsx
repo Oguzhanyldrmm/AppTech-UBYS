@@ -62,13 +62,13 @@ export default function CommunityDashboard() {
     tel_no: '',
     mail: ''
   })
-
   useEffect(() => {
     if (user?.type === 'community') {
       fetchEvents()
       fetchCommunityInfo()
       fetchCommunityData()
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user])
   const fetchCommunityInfo = async () => {
     try {

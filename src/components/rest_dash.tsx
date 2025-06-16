@@ -61,17 +61,7 @@ interface Order {
   }
   payment_methods?: {
     name: string
-    type: string
-  }
-}
-
-interface OrderMenuItem {
-  menu_item_id: string
-  order_id: string
-  menu_items: {
-    name: string
-    price: number
-  }
+    type: string  }
 }
 
 export default function RestaurantDashboard() {
@@ -118,6 +108,7 @@ export default function RestaurantDashboard() {
     start_date: '',
     end_date: ''
   })
+
   useEffect(() => {
     if (user?.type === 'restaurant') {
       fetchMenuItems()
@@ -126,6 +117,7 @@ export default function RestaurantDashboard() {
       fetchRestaurantInfo()
       fetchAnnouncements()
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user])
 
   const fetchMenuItems = async () => {
@@ -343,10 +335,10 @@ export default function RestaurantDashboard() {
       
       setRestaurantFormData(formData)
       setShowRestaurantForm(true)
-    } else {
-      fetchRestaurantInfo()
+    } else {      fetchRestaurantInfo()
       alert('Restaurant information is loading. Please try again in a moment.')
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restaurantInfo])
 
   const cancelRestaurantForm = () => {

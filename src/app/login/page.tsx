@@ -23,14 +23,13 @@ export default function LoginPage() {
 
     try {
       const success = await login(email, password, userType)
-      
-      if (success) {
+        if (success) {
         // Redirect to home page, which will show appropriate dashboard
         router.push('/')
       } else {
         setError('Invalid email or password')
       }
-    } catch (err) {
+    } catch {
       setError('Login failed. Please try again.')
     } finally {
       setLoading(false)
